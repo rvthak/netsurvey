@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 import com.rvthak.netsurvey.model.DataCapConfig
 import com.rvthak.netsurvey.model.MeasurementSummary
 import com.rvthak.netsurvey.model.SampleKind
+import com.rvthak.netsurvey.telephony.CellRole
 import com.rvthak.netsurvey.telephony.CellTech
 import kotlinx.serialization.Serializable
 
@@ -120,6 +121,14 @@ data class ServingCellEntity(
     val firstSeen: Long,
     val lastSeen: Long,
     val dwellMs: Long,
+    /** PRIMARY anchor or a SECONDARY (CA / 5G-NSA) carrier used during the run. */
+    val role: CellRole = CellRole.PRIMARY,
+    /** Number of 1 Hz signal snapshots this cell was serving in. */
+    val sampleCount: Int = 0,
+    /** sampleCount as a percentage of the run's signal snapshots — the honest
+     * "how much of this measurement used this tower" figure (time-share, since the
+     * OS exposes no per-cell byte attribution). */
+    val sharePct: Double? = null,
 )
 
 @Entity(

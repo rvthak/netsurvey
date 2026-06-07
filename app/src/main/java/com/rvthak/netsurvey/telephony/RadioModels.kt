@@ -11,6 +11,15 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class CellTech { LTE, NR, WCDMA, GSM, CDMA, UNKNOWN }
 
+/**
+ * How a cell was being used at the moment of the snapshot, from
+ * [android.telephony.CellInfo.getCellConnectionStatus]. PRIMARY is the anchor
+ * serving cell; SECONDARY is a concurrently-used carrier (Carrier Aggregation or
+ * 5G NSA dual connectivity); NEIGHBOR is visible but not carrying our data.
+ */
+@Serializable
+enum class CellRole { PRIMARY, SECONDARY, NEIGHBOR }
+
 /** Quality of the cell-identity data we managed to read (SPEC §5). */
 @Serializable
 enum class CellDataQuality { FULL, SERVING_ONLY, PCI_ONLY, UNAVAILABLE }
@@ -24,7 +33,7 @@ data class SignalReading(
     val level: Int,   // 0..4 coarse bars
 )
 
-/** The registered serving cell's identity. */
+/** A serving cell's identity (PRIMARY anchor, or a SECONDARY CA/NSA carrier). */
 data class ServingCell(
     val tech: CellTech,
     val globalId: Long?,        // ECI (LTE) / NCI (NR)
@@ -34,6 +43,7 @@ data class ServingCell(
     val earfcn: Int?,           // EARFCN (LTE) / NRARFCN (NR)
     val bands: List<Int>,
     val mccMnc: String?,
+    val role: CellRole = CellRole.PRIMARY,
 )
 
 /** An observed neighbour (measured candidate, not a guaranteed alternative). */
@@ -51,7 +61,8 @@ data class RadioSnapshot(
     val carrier: String?,
     val dataNetworkTypeLabel: String,
     val nsaActive: Boolean,            // 5G NSA: LTE anchor + active NR carrier
-    val serving: ServingCell?,
+    val serving: ServingCell?,         // the PRIMARY serving cell (headline anchor)
+    val servingCells: List<ServingCell> = emptyList(), // all serving cells (primary + CA/NSA secondaries)
     val servingSignal: SignalReading?, // signal of the serving radio
     val nrSignal: SignalReading?,      // NR signal when present (esp. NSA)
     val neighbors: List<NeighborCell>,

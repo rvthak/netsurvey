@@ -15,7 +15,7 @@ import androidx.room.TypeConverters
         ServingCellEntity::class,
         NeighborCellEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -33,7 +33,12 @@ abstract class NetSurveyDatabase : RoomDatabase() {
                     context.applicationContext,
                     NetSurveyDatabase::class.java,
                     "netsurvey.db",
-                ).build().also { instance = it }
+                )
+                    // v2 added serving-cell role/share + summary EN-DC/handover fields.
+                    // Survey runs are cheap to re-capture, so we drop old rows rather
+                    // than carry a hand-written migration. Export/import is unaffected.
+                    .fallbackToDestructiveMigration(true)
+                    .build().also { instance = it }
             }
     }
 }

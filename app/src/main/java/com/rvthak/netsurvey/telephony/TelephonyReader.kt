@@ -97,6 +97,7 @@ class TelephonyReader(private val context: Context) {
                 serving = null,
                 servingSignal = null,
                 nrSignal = null,
+                servingCells = emptyList(),
                 neighbors = emptyList(),
                 cellDataQuality = CellDataQuality.UNAVAILABLE,
                 nrIdentityUnavailable = false,
@@ -111,25 +112,36 @@ class TelephonyReader(private val context: Context) {
         val cellInfos = freshCellInfo(tm)
         if (cellInfos.isEmpty()) errors += "no cell info returned"
 
-        val registered = cellInfos.firstOrNull { it.isRegistered }
-        val serving = registered?.let { servingCellOf(it) }
-        // Headline signal: prefer the registered cell's reading, but fall back to
+        // Classify every reported cell by how it's being used right now. CA and 5G
+        // NSA mean several cells can be SECONDARY-serving simultaneously, not just
+        // one registered cell — getCellConnectionStatus() is what distinguishes a
+        // concurrently-used carrier from a merely-visible neighbour.
+        val roled = cellInfos.map { it to roleOf(it) }
+        val servingCells = roled
+            .filter { it.second != CellRole.NEIGHBOR }
+            .mapNotNull { (info, role) -> servingCellOf(info)?.copy(role = role) }
+        val serving = servingCells.firstOrNull { it.role == CellRole.PRIMARY }
+            ?: servingCells.firstOrNull()
+        // The CellInfo backing the primary, for its signal reading.
+        val primaryInfo = roled.firstOrNull { it.second == CellRole.PRIMARY }?.first
+            ?: cellInfos.firstOrNull { it.isRegistered }
+        // Headline signal: prefer the primary cell's reading, but fall back to
         // the system SignalStrength object. getAllCellInfo() blanks out when the
         // device's Location master toggle is OFF (even with the permission granted),
         // yet TelephonyManager.signalStrength keeps reporting RSRP — so without this
         // fallback the headline metric silently disappears. (Cell *identity* still
         // needs location on; that's an OS privacy gate, not something we can route
         // around — so the Cells section legitimately stays empty in that case.)
-        val servingSignal = registered?.let { signalOf(it) }?.takeIf { it.rsrp != null }
+        val servingSignal = primaryInfo?.let { signalOf(it) }?.takeIf { it.rsrp != null }
             ?: primarySignalFromSystem(tm)
 
         // NR signal from the system SignalStrength object — present in NSA even
         // when the registered (anchor) cell is LTE.
         val nrSignal = nrSignalFromSystem(tm)
 
-        val neighbors = cellInfos
-            .filterNot { it.isRegistered }
-            .mapNotNull { neighborCellOf(it) }
+        val neighbors = roled
+            .filter { it.second == CellRole.NEIGHBOR }
+            .mapNotNull { neighborCellOf(it.first) }
             .dedupeNeighbors()
 
         val nsaActive = (serving?.tech == CellTech.LTE) && nrSignal?.rsrp != null
@@ -143,6 +155,7 @@ class TelephonyReader(private val context: Context) {
             dataNetworkTypeLabel = networkTypeLabel(dataType, nsaActive),
             nsaActive = nsaActive,
             serving = serving,
+            servingCells = servingCells,
             servingSignal = servingSignal,
             nrSignal = nrSignal,
             neighbors = neighbors,
@@ -153,6 +166,20 @@ class TelephonyReader(private val context: Context) {
     }
 
     // --- parsing helpers -----------------------------------------------------
+
+    /**
+     * Map the OS connection status to our [CellRole]. When the modem reports
+     * CONNECTION_UNKNOWN (common on older/quirky OEM stacks that don't populate
+     * the field) we fall back to the legacy `isRegistered` signal: registered →
+     * PRIMARY, otherwise NEIGHBOR. So behaviour degrades to the old single-serving
+     * model rather than dropping the cell.
+     */
+    private fun roleOf(info: CellInfo): CellRole = when (info.cellConnectionStatus) {
+        CellInfo.CONNECTION_PRIMARY_SERVING -> CellRole.PRIMARY
+        CellInfo.CONNECTION_SECONDARY_SERVING -> CellRole.SECONDARY
+        CellInfo.CONNECTION_NONE -> CellRole.NEIGHBOR
+        else -> if (info.isRegistered) CellRole.PRIMARY else CellRole.NEIGHBOR
+    }
 
     private fun servingCellOf(info: CellInfo): ServingCell? = when (info) {
         is CellInfoLte -> {

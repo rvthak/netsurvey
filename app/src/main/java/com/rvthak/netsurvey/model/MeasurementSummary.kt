@@ -28,6 +28,14 @@ data class MeasurementSummary(
     val distinctNeighborCount: Int = 0,
     /** Radio type changed mid-test (SPEC §10.3) — RSRP is mixed-tech, flagged not hidden. */
     val mixedTech: Boolean = false,
+    /** 5G NSA dual connectivity (EN-DC: LTE anchor + active NR carrier) seen at any point. */
+    val endcSeen: Boolean = false,
+    /** The PRIMARY serving cell changed during the run — aggregate spans a handover. */
+    val handoverOccurred: Boolean = false,
+    /** Distinct SECONDARY (Carrier-Aggregation / NSA) serving cells used during the run. */
+    val secondaryCellCount: Int = 0,
+    /** Largest single-cell time-share — low values mean the run was split across cells. */
+    val dominantCellSharePct: Double? = null,
 ) {
     /** Headline value for a colour-driving metric, or null if not measured. */
     fun value(metric: Metric): Double? = when (metric) {

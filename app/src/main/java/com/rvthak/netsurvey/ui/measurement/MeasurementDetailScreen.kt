@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -19,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -26,8 +28,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.rvthak.netsurvey.telephony.CellRole
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
@@ -116,6 +121,7 @@ fun MeasurementDetailScreen(
 
 @Composable
 private fun HeaderCard(d: MeasurementWithDetails) {
+    val s = d.measurement.summary
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(Format.timestamp(d.measurement.startedAt), style = MaterialTheme.typography.titleMedium)
@@ -124,6 +130,25 @@ private fun HeaderCard(d: MeasurementWithDetails) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            val cs = MaterialTheme.colorScheme
+            val hasTags = s.endcSeen || s.secondaryCellCount > 0 || s.handoverOccurred
+            if (hasTags) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    if (s.endcSeen) {
+                        TagChip("5G NSA · EN-DC", cs.tertiaryContainer, cs.onTertiaryContainer)
+                    }
+                    if (s.secondaryCellCount > 0) {
+                        TagChip("CA · ${s.secondaryCellCount} 2nd cell", cs.secondaryContainer, cs.onSecondaryContainer)
+                    }
+                    if (s.handoverOccurred) {
+                        TagChip("Handover", cs.errorContainer, cs.onErrorContainer)
+                    }
+                }
+            }
             if (d.measurement.summary.mixedTech) {
                 Text(
                     "⚠ Radio type changed mid-test — RSRP is mixed-tech.",
@@ -135,6 +160,18 @@ private fun HeaderCard(d: MeasurementWithDetails) {
                 Text(d.measurement.notes, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
             }
         }
+    }
+}
+
+/** A small rounded badge used to flag connectivity modes (EN-DC, CA, handover). */
+@Composable
+private fun TagChip(text: String, container: Color, content: Color) {
+    Surface(color = container, contentColor = content, shape = RoundedCornerShape(8.dp)) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelMedium,
+        )
     }
 }
 
@@ -208,6 +245,15 @@ private fun CellsSection(d: MeasurementWithDetails) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            s.dominantCellSharePct?.let { dom ->
+                Text(
+                    "Dominant cell served ${dom.roundToInt()}% of the run" +
+                        if (s.handoverOccurred) " — connection moved between cells mid-test." else ".",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (s.handoverOccurred) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (s.nrIdentityUnavailable) {
                 Text(
                     "5G NSA: NR present but its cell identity was hidden by the OS.",
@@ -219,7 +265,7 @@ private fun CellsSection(d: MeasurementWithDetails) {
                 Text("No serving cell identity captured.", style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text(
-                    "Serving cells (${d.servingCells.size}, in order)",
+                    "Towers used (${d.servingCells.size}) — share = % of run carrying our data",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -231,9 +277,10 @@ private fun CellsSection(d: MeasurementWithDetails) {
 
 @Composable
 private fun ServingCellRow(c: ServingCellEntity) {
+    val roleLabel = if (c.role == CellRole.PRIMARY) "primary" else "secondary (CA/NSA)"
     Column(Modifier.padding(vertical = 2.dp)) {
         Text(
-            "${c.tech} • ${c.globalId?.let { "id $it" } ?: "id hidden"}",
+            "${c.tech} • $roleLabel • ${c.globalId?.let { "id $it" } ?: "id hidden"}",
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
@@ -241,6 +288,7 @@ private fun ServingCellRow(c: ServingCellEntity) {
                 append("tower ${c.derivedTowerId ?: "—"}")
                 append("  •  pci ${c.pci ?: "—"}")
                 append("  •  band ${c.band ?: "—"}")
+                append("  •  share ${c.sharePct?.let { "${it.roundToInt()}%" } ?: "—"}")
                 append("  •  dwell ${c.dwellMs / 1000}s")
             },
             style = MaterialTheme.typography.bodySmall,

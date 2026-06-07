@@ -10,6 +10,7 @@ import com.rvthak.netsurvey.model.MeasurementSummary
 import com.rvthak.netsurvey.model.SampleKind
 import com.rvthak.netsurvey.stats.Stats
 import com.rvthak.netsurvey.telephony.CellDataQuality
+import com.rvthak.netsurvey.telephony.CellRole
 import com.rvthak.netsurvey.telephony.CellTech
 import com.rvthak.netsurvey.telephony.RadioSnapshot
 import com.rvthak.netsurvey.telephony.ServingCell
@@ -149,6 +150,8 @@ private class Accumulator {
     private val serving = LinkedHashMap<String, ServingAccum>()
     private val neighbors = LinkedHashMap<String, NeighborCellEntity>()
     private val servingTechs = HashSet<CellTech>()
+    private val primaryKeys = HashSet<String>()
+    private var signalSamples = 0
     private var nsaSeen = false
     private var nrIdSeen = false
 
@@ -156,6 +159,7 @@ private class Accumulator {
     @Volatile var uploadMbps: Double? = null
 
     fun addSignal(snap: RadioSnapshot, tOffsetMs: Long) = synchronized(lock) {
+        signalSamples++
         val sig = snap.headlineSignal
         lastRsrp = sig?.rsrp
         lastNetwork = snap.dataNetworkTypeLabel
@@ -175,11 +179,14 @@ private class Accumulator {
             carrier = snap.carrier,
         )
 
-        snap.serving?.let { sc ->
-            servingTechs += sc.tech
+        snap.serving?.let { primaryKeys += servingKey(it); servingTechs += it.tech }
+        // Tally every serving cell this snapshot — primary plus any CA/NSA secondaries.
+        snap.servingCells.forEach { sc ->
             val key = servingKey(sc)
             val a = serving.getOrPut(key) { ServingAccum(sc, tOffsetMs, tOffsetMs) }
             a.lastSeen = tOffsetMs
+            a.sampleCount++
+            if (sc.role == CellRole.PRIMARY) a.everPrimary = true
             if (a.cell.globalId == null && sc.globalId != null) a.cell = sc
         }
         if (snap.nsaActive) nsaSeen = true
@@ -249,6 +256,11 @@ private class Accumulator {
                     firstSeen = a.firstSeen,
                     lastSeen = a.lastSeen,
                     dwellMs = a.lastSeen - a.firstSeen,
+                    // A cell that was ever the anchor is reported as PRIMARY; one only
+                    // ever seen as a concurrent carrier is SECONDARY (CA / NSA).
+                    role = if (a.everPrimary) CellRole.PRIMARY else CellRole.SECONDARY,
+                    sampleCount = a.sampleCount,
+                    sharePct = if (signalSamples > 0) a.sampleCount * 100.0 / signalSamples else null,
                 )
             }
 
@@ -280,6 +292,10 @@ private class Accumulator {
             nrIdentityUnavailable = nsaSeen && !nrIdSeen,
             distinctNeighborCount = neighbors.size,
             mixedTech = servingTechs.size > 1,
+            endcSeen = nsaSeen,
+            handoverOccurred = primaryKeys.size > 1,
+            secondaryCellCount = servingCells.count { it.role == CellRole.SECONDARY },
+            dominantCellSharePct = servingCells.mapNotNull { it.sharePct }.maxOrNull(),
         )
 
         RunResult(
@@ -295,5 +311,8 @@ private class Accumulator {
     private fun servingKey(sc: ServingCell): String =
         "${sc.tech}:${sc.globalId ?: "pci${sc.pci}"}"
 
-    private class ServingAccum(var cell: ServingCell, val firstSeen: Long, var lastSeen: Long)
+    private class ServingAccum(var cell: ServingCell, val firstSeen: Long, var lastSeen: Long) {
+        var sampleCount: Int = 0
+        var everPrimary: Boolean = false
+    }
 }

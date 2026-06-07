@@ -87,8 +87,9 @@ private fun SnapshotDump(s: RadioSnapshot) {
                 appendLine("5G NSA active:  ${s.nsaActive}")
                 appendLine("data quality:   ${s.cellDataQuality}")
                 appendLine("NR id hidden:   ${s.nrIdentityUnavailable}")
+                appendLine("serving cells:  ${s.servingCells.size} [${s.servingCells.joinToString { it.role.name.lowercase() }}]")
                 appendLine()
-                appendLine("— serving cell —")
+                appendLine("— serving cell (primary) —")
                 s.serving?.let { c ->
                     appendLine("tech:           ${c.tech}")
                     appendLine("globalId:       ${c.globalId ?: "unavailable"}")
