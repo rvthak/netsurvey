@@ -1,5 +1,6 @@
 package com.rvthak.netsurvey.ui.run
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -76,6 +79,7 @@ fun MeasurementRunScreen(
 
     var durationText by remember { mutableStateOf("30") }
     var notes by remember { mutableStateOf("") }
+    var includeSpeedTest by remember { mutableStateOf(true) }
     var dlSec by remember { mutableStateOf(DataCapConfig.DEFAULT.downloadMaxSec.toString()) }
     var dlMb by remember { mutableStateOf(DataCapConfig.DEFAULT.downloadMaxMb.toString()) }
     var ulSec by remember { mutableStateOf(DataCapConfig.DEFAULT.uploadMaxSec.toString()) }
@@ -149,9 +153,32 @@ fun MeasurementRunScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("Data cap (stops at time or size, whichever first)", style = MaterialTheme.typography.titleSmall)
-            CapRow("Download", dlSec, { dlSec = it }, dlMb, { dlMb = it }, enabled = !running)
-            CapRow("Upload", ulSec, { ulSec = it }, ulMb, { ulMb = it }, enabled = !running)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !running) { includeSpeedTest = !includeSpeedTest },
+            ) {
+                Checkbox(
+                    checked = includeSpeedTest,
+                    onCheckedChange = { includeSpeedTest = it },
+                    enabled = !running,
+                )
+                Column(Modifier.padding(start = 4.dp)) {
+                    Text("Include speed test (download & upload)", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Uses mobile data. Uncheck to measure only signal & latency.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (includeSpeedTest) {
+                Text("Data cap (stops at time or size, whichever first)", style = MaterialTheme.typography.titleSmall)
+                CapRow("Download", dlSec, { dlSec = it }, dlMb, { dlMb = it }, enabled = !running)
+                CapRow("Upload", ulSec, { ulSec = it }, ulMb, { ulMb = it }, enabled = !running)
+            }
 
             OutlinedTextField(
                 value = notes,
@@ -177,6 +204,7 @@ fun MeasurementRunScreen(
                             val run = engine.run(
                                 durationSec = duration,
                                 dataCap = cap,
+                                includeSpeedTest = includeSpeedTest,
                                 onProgress = { progress = it },
                             )
                             repo.saveRun(typeId, cap, notes.trim(), run)
@@ -246,7 +274,6 @@ private fun CapRow(
 
 @Composable
 private fun LiveProgress(p: RunProgress) {
-    val sampling = p.phase == RunPhase.SAMPLING
     val speedTest = p.phase == RunPhase.DOWNLOAD || p.phase == RunPhase.UPLOAD
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -277,7 +304,9 @@ private fun LiveProgress(p: RunProgress) {
                     appendLine("RSRP:     ${p.currentRsrp?.let { "$it dBm" } ?: "—"}")
                     appendLine("probes:   ${p.probesOk}/${p.probesSent} ok")
                     appendLine("last RTT: ${p.lastLatencyMs?.let { "$it ms" } ?: "—"}")
-                    if (!sampling) {
+                    // Only while the speed burst is actually running (or has a result);
+                    // a signal-only run skips it, so don't show pending "…" lines.
+                    if (speedTest || p.downloadMbps != null || p.uploadMbps != null) {
                         appendLine("down:     ${p.downloadMbps?.let { "%.1f Mbps".format(it) } ?: "…"}")
                         appendLine("up:       ${p.uploadMbps?.let { "%.1f Mbps".format(it) } ?: "…"}")
                     }

@@ -66,6 +66,7 @@ class MeasurementEngine(
     suspend fun run(
         durationSec: Int,
         dataCap: DataCapConfig,
+        includeSpeedTest: Boolean = true,
         onProgress: (RunProgress) -> Unit,
     ): RunResult = coroutineScope {
         val pm = appContext.getSystemService(PowerManager::class.java)
@@ -104,14 +105,17 @@ class MeasurementEngine(
             delay(totalMs)
             latencyJob.cancel()
 
-            // Speed burst (once). Signal job keeps running underneath.
-            onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
-            acc.downloadMbps = probes.downloadBurst(dataCap)
-            onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
+            // Optional speed burst (once). Signal job keeps running underneath.
+            // When skipped, download/upload stay null — i.e. "not measured", not 0.
+            if (includeSpeedTest) {
+                onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
+                acc.downloadMbps = probes.downloadBurst(dataCap)
+                onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
 
-            onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
-            acc.uploadMbps = probes.uploadBurst(dataCap)
-            onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
+                onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
+                acc.uploadMbps = probes.uploadBurst(dataCap)
+                onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
+            }
 
             signalJob.cancel()
 
