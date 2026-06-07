@@ -8,25 +8,37 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rvthak.netsurvey.data.NetSurveyRepository
@@ -34,6 +46,7 @@ import com.rvthak.netsurvey.data.db.MeasurementEntity
 import com.rvthak.netsurvey.model.Metric
 import com.rvthak.netsurvey.stats.TypeAggregate
 import com.rvthak.netsurvey.ui.common.Format
+import kotlinx.coroutines.launch
 
 /**
  * Phase 5 — type detail (SPEC §8): the equal-weight aggregate header over this
@@ -49,12 +62,16 @@ fun TypeDetailScreen(
     onOpenMeasurement: (Long) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val repo = remember { NetSurveyRepository(context) }
     val type by remember(typeId) { repo.observeType(typeId) }
         .collectAsStateWithLifecycle(initialValue = null)
     val measurements by remember(typeId) { repo.observeMeasurementsForType(typeId) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val aggregate = remember(measurements) { TypeAggregate.from(measurements.map { it.summary }) }
+
+    var showRename by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -63,6 +80,14 @@ fun TypeDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showRename = true }, enabled = type != null) {
+                        Icon(Icons.Default.Edit, contentDescription = "Rename spot")
+                    }
+                    IconButton(onClick = { showDelete = true }, enabled = type != null) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete spot")
                     }
                 },
             )
@@ -103,6 +128,74 @@ fun TypeDetailScreen(
             }
         }
     }
+
+    if (showRename) {
+        type?.let { t ->
+            RenameDialog(
+                initial = t.name,
+                onConfirm = { newName ->
+                    scope.launch { repo.renameType(t, newName.trim()) }
+                    showRename = false
+                },
+                onDismiss = { showRename = false },
+            )
+        }
+    }
+
+    if (showDelete) {
+        val count = measurements.size
+        AlertDialog(
+            onDismissRequest = { showDelete = false },
+            title = { Text("Delete this spot?") },
+            text = {
+                Text(
+                    if (count == 0) {
+                        "This will remove \"${type?.name.orEmpty()}\" from the map."
+                    } else {
+                        "This will permanently delete \"${type?.name.orEmpty()}\" and its " +
+                            "$count measurement" + (if (count == 1) "" else "s") + "."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDelete = false
+                    scope.launch {
+                        repo.deleteType(typeId)
+                        onBack()
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun RenameDialog(
+    initial: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    val submit = { if (text.isNotBlank()) onConfirm(text) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename spot") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                label = { Text("Name") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                modifier = Modifier.widthIn(min = 240.dp),
+            )
+        },
+        confirmButton = { TextButton(onClick = submit, enabled = text.isNotBlank()) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

@@ -9,9 +9,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class DataCapConfig(
     val downloadMaxSec: Int = 10,
-    val downloadMaxMb: Int = 100,
+    val downloadMaxMb: Int = 50,
     val uploadMaxSec: Int = 5,
-    val uploadMaxMb: Int = 25,
+    val uploadMaxMb: Int = 10,
 ) {
     val downloadMaxBytes: Long get() = downloadMaxMb.toLong() * 1_000_000L
     val uploadMaxBytes: Long get() = uploadMaxMb.toLong() * 1_000_000L
