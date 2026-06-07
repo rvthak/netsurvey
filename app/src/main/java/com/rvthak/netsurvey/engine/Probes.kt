@@ -71,6 +71,9 @@ class Probes {
                         if (n < 0) break
                         total += n
                     }
+                } catch (e: Exception) {
+                    // A stall/reset mid-stream still leaves us measurable bytes;
+                    // fall through and report the rate rather than discarding it.
                 } finally {
                     call.cancel()
                 }
