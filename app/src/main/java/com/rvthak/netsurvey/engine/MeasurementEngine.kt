@@ -19,6 +19,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.coroutineContext
 
 enum class RunPhase { SAMPLING, DOWNLOAD, UPLOAD, DONE }
@@ -81,13 +82,18 @@ class MeasurementEngine(
         val totalMs = durationSec * 1000L
         fun elapsedMs() = (System.nanoTime() - t0) / 1_000_000L
 
+        // The signal loop runs the whole time, including under the speed burst, so it
+        // must report the active phase — otherwise its 1 Hz SAMPLING emissions clobber
+        // the DOWNLOAD/UPLOAD status and the UI looks stuck in the sampling screen.
+        val currentPhase = AtomicReference(RunPhase.SAMPLING)
+
         try {
             // Signal polling for the entire run.
             val signalJob = launch {
                 while (coroutineContext.isActive) {
                     val snap = reader.snapshot()
                     acc.addSignal(snap, elapsedMs())
-                    onProgress(acc.progress(RunPhase.SAMPLING, elapsedMs(), totalMs, snap))
+                    onProgress(acc.progress(currentPhase.get(), elapsedMs(), totalMs, snap))
                     delay(SIGNAL_INTERVAL_MS)
                 }
             }
@@ -108,15 +114,18 @@ class MeasurementEngine(
             // Optional speed burst (once). Signal job keeps running underneath.
             // When skipped, download/upload stay null — i.e. "not measured", not 0.
             if (includeSpeedTest) {
+                currentPhase.set(RunPhase.DOWNLOAD)
                 onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
                 acc.downloadMbps = probes.downloadBurst(dataCap)
                 onProgress(acc.progress(RunPhase.DOWNLOAD, elapsedMs(), totalMs, null))
 
+                currentPhase.set(RunPhase.UPLOAD)
                 onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
                 acc.uploadMbps = probes.uploadBurst(dataCap)
                 onProgress(acc.progress(RunPhase.UPLOAD, elapsedMs(), totalMs, null))
             }
 
+            currentPhase.set(RunPhase.DONE)
             signalJob.cancel()
 
             val result = acc.finish(startedAt, durationSec)

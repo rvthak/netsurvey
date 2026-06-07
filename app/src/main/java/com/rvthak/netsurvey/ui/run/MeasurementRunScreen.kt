@@ -288,8 +288,8 @@ private fun LiveProgress(p: RunProgress) {
 
             val phaseLabel = when (p.phase) {
                 RunPhase.SAMPLING -> "Sampling signal & latency"
-                RunPhase.DOWNLOAD -> "Speed test — download (runs after the timed window)"
-                RunPhase.UPLOAD -> "Speed test — upload (runs after the timed window)"
+                RunPhase.DOWNLOAD -> "Speed test — download"
+                RunPhase.UPLOAD -> "Speed test — upload"
                 RunPhase.DONE -> "Done"
             }
             Text(phaseLabel, style = MaterialTheme.typography.titleSmall)
